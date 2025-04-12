@@ -1,20 +1,69 @@
 import os
-import openai
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from openai import OpenAI
 from debugger import PythonDebugger
-import pickle
 import numpy as np
+import pickle
 
 app = FastAPI()
 
-# Load the pre-trained ML model
-MODEL_PATH = "error_type_model.pkl"  # Path to your trained model
+# Serve static files for frontend (e.g., CSS, JS)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Initialize the OpenAI client
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Load the pre-trained model
+MODEL_PATH = "models/debugger_model.pkl"  # Path to your trained model
 with open(MODEL_PATH, "rb") as f:
     error_type_model = pickle.load(f)
 
-# Set OpenAI API key
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Debugging: Confirm the loaded model type
+print("Loaded model type:", type(error_type_model))
+
+# Serve the frontend at the root route
+@app.get("/", response_class=HTMLResponse)
+async def read_root():
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>FastAPI Debugger</title>
+        <link rel="stylesheet" href="/static/styles.css">
+    </head>
+    <body>
+        <h1>Welcome to the AI Python Debugger</h1>
+        <form id="debug-form">
+            <label for="code">Enter Python Code:</label><br>
+            <textarea id="code" name="code" rows="10" cols="50"></textarea><br>
+            <button type="button" onclick="submitCode()">Debug</button>
+        </form>
+        <div id="debug-output"></div>
+        <script>
+            async function submitCode() {
+                const code = document.getElementById("code").value;
+                try {
+                    const response = await fetch('/debug', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ code }),
+                    });
+                    const result = await response.json();
+                    document.getElementById("debug-output").innerText = JSON.stringify(result, null, 2);
+                } catch (error) {
+                    document.getElementById("debug-output").innerText = `Error: ${error.message}`;
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 class DebugRequest(BaseModel):
     code: str
@@ -28,25 +77,32 @@ async def debug_code(request: DebugRequest):
     syntax_error = debugger.find_syntax_errors()
     response = {"syntax_error": syntax_error}
     
-    # Step 2: Use AI Model to predict error type
+    # Step 2: Use the pre-trained model to predict error type
     if syntax_error:
-        # Preprocess the error message to a feature vector (example logic)
-        error_vector = np.array([len(syntax_error), syntax_error.count(" ")])  # Example: length and space count
-        error_type = error_type_model.predict([error_vector])[0]
-        response["predicted_error_type"] = error_type
-    
-    # Step 3: Get suggestions from OpenAI
+        feature_vector = np.array([[
+            len(code),  # original_code_length
+            len(code),  # changed_code_length
+            0,          # code_length_difference
+            0           # change_count
+        ]])
+        predicted_error_type = error_type_model.predict(feature_vector)[0]
+        response["predicted_error_type"] = predicted_error_type
+
+    # Step 3: Get debugging suggestions from OpenAI
     openai_prompt = f"Provide debugging suggestions for the following code and error message:\n\nCode:\n{code}\n\nError:\n{syntax_error}"
-    openai_response = openai.Completion.create(
-        model="text-davinci-003",
-        prompt=openai_prompt,
+    openai_response = openai_client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant for debugging Python code."},
+            {"role": "user", "content": openai_prompt}
+        ],
         max_tokens=200
     )
-    response["openai_suggestions"] = openai_response["choices"][0]["text"].strip()
+    response["openai_suggestions"] = openai_response.choices[0].message.content.strip()
     
     return response
 
 # Automatically run the Uvicorn app
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
