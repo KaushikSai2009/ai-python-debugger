@@ -9,9 +9,19 @@
 <body>
     <div id="app">
         <h1>AI Python Debugger</h1>
+        <p>Paste your Python code below and click "Debug" to analyze it.</p>
+        
         <textarea id="code" placeholder="Paste your code here..."></textarea>
-        <button onclick="debugCode()">Debug</button>
-        <div id="result"></div>
+        
+        <div class="button-group">
+            <button onclick="debugCode()">Debug</button>
+            <button onclick="clearCode()">Clear</button>
+        </div>
+        
+        <div id="result">
+            <h2>Debug Output</h2>
+            <pre id="output-text">Your debug results will appear here.</pre>
+        </div>
     </div>
     <script src="script.js"></script>
 </body>

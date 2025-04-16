@@ -10,6 +10,16 @@ import pickle
 
 app = FastAPI()
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # or ["http://127.0.0.1:5500"] if you're using Live Server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Serve static files for frontend (e.g., CSS, JS)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
